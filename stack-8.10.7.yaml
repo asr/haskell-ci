@@ -1,0 +1,10 @@
+resolver: lts-18.9
+compiler: ghc-8.10.7
+compiler-check: match-exact
+
+extra-deps:
+  - Cabal-3.6.0.0
+  - attoparsec-0.14.1
+  - cabal-install-parsers-0.4.3
+  - generic-lens-lite-0.1
+  - zinza-0.2
