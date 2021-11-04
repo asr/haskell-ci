@@ -145,6 +145,17 @@ makeGitHub _argv config@Config {..} gitconfig prj jobs@JobVersions {..} = do
                     ]
             sh $ "apt-get install -y --no-install-recommends " ++ unwords corePkgs
 
+            let installGhcup :: ShM ()
+                installGhcup = do
+                    let ghcupVer = C.prettyShow cfgGhcupVersion
+                    sh $ "mkdir -p \"$HOME/.ghcup/bin\""
+                    sh $ "curl -sL https://downloads.haskell.org/ghcup/" ++ ghcupVer ++ "/x86_64-linux-ghcup-" ++ ghcupVer ++ " > \"$HOME/.ghcup/bin/ghcup\""
+                    sh $ "chmod a+x \"$HOME/.ghcup/bin/ghcup\""
+
+                installGhcupCabal :: ShM ()
+                installGhcupCabal =
+                    sh $ "\"$HOME/.ghcup/bin/ghcup\" install cabal " ++ cabalFullVer
+
             hvrppa <- runSh $ do
                 sh "apt-add-repository -y 'ppa:hvr/ghc'"
                 when anyGHCJS $ do
@@ -152,21 +163,21 @@ makeGitHub _argv config@Config {..} gitconfig prj jobs@JobVersions {..} = do
                     sh_if RangeGHCJS "curl -sSL \"https://deb.nodesource.com/gpgkey/nodesource.gpg.key\" | apt-key add -"
                     sh_if RangeGHCJS $ "apt-add-repository -y 'deb https://deb.nodesource.com/node_10.x " ++ ubuntuVer ++ " main'"
                 sh "apt-get update"
-                let basePackages  = ["\"$HCNAME\"", "cabal-install-" ++ cabalVer] ++ S.toList cfgApt
+                let basePackages  = ["\"$HCNAME\"" ] ++ [ "cabal-install-" ++ cabalVer | not cfgGhcupCabal ] ++ S.toList cfgApt
                     ghcjsPackages = ["ghc-8.4.4", "nodejs"]
                     baseInstall   = "apt-get install -y " ++ unwords basePackages
                     ghcjsInstall  = "apt-get install -y " ++ unwords (basePackages ++ ghcjsPackages)
                 if anyGHCJS
                     then if_then_else RangeGHCJS ghcjsInstall baseInstall
                     else sh baseInstall
+                when cfgGhcupCabal $ do
+                    installGhcup
+                    installGhcupCabal
 
             ghcup <- runSh $ do
-                let ghcupVer = C.prettyShow cfgGhcupVersion
-                sh $ "mkdir -p \"$HOME/.ghcup/bin\""
-                sh $ "curl -sL https://downloads.haskell.org/ghcup/" ++ ghcupVer ++ "/x86_64-linux-ghcup-" ++ ghcupVer ++ " > \"$HOME/.ghcup/bin/ghcup\""
-                sh $ "chmod a+x \"$HOME/.ghcup/bin/ghcup\""
+                installGhcup
                 sh $ "\"$HOME/.ghcup/bin/ghcup\" install ghc \"$HCVER\""
-                sh $ "\"$HOME/.ghcup/bin/ghcup\" install cabal " ++ cabalFullVer
+                installGhcupCabal
                 unless (null cfgApt) $ do
                     sh "apt-get update"
                     sh $ "apt-get install -y " ++ unwords (S.toList cfgApt)
@@ -188,13 +199,17 @@ makeGitHub _argv config@Config {..} gitconfig prj jobs@JobVersions {..} = do
 
             sh "HCDIR=/opt/$HCKIND/$HCVER"
 
+            let ghcupCabalPath = tell_env "CABAL" $ "$HOME/.ghcup/bin/cabal-" ++ cabalFullVer ++ " -vnormal+nowrap"
+
             hvrppa <- runSh $ do
                 let hc = "$HCDIR/bin/$HCKIND"
                 sh $ "HC=" ++ hc -- HC is an absolute path.
                 tell_env "HC" "$HC"
                 tell_env "HCPKG" $ hc ++ "-pkg"
                 tell_env "HADDOCK" "$HCDIR/bin/haddock"
-                tell_env "CABAL" $ "/opt/cabal/" ++ cabalVer ++ "/bin/cabal -vnormal+nowrap"
+                if cfgGhcupCabal
+                then ghcupCabalPath
+                else tell_env "CABAL" $ "/opt/cabal/" ++ cabalVer ++ "/bin/cabal -vnormal+nowrap"
 
             ghcup <- runSh $ do
                 let hc = "$HOME/.ghcup/bin/$HCKIND-$HCVER"
@@ -202,7 +217,7 @@ makeGitHub _argv config@Config {..} gitconfig prj jobs@JobVersions {..} = do
                 tell_env "HC"      "$HC"
                 tell_env "HCPKG" $ "$HOME/.ghcup/bin/$HCKIND-pkg-$HCVER"
                 tell_env "HADDOCK" "$HOME/.ghcup/bin/haddock-$HCVER"
-                tell_env "CABAL" $ "$HOME/.ghcup/bin/cabal-" ++ cabalFullVer ++ " -vnormal+nowrap"
+                ghcupCabalPath
 
             setup hvrppa ghcup
 
@@ -542,8 +557,12 @@ makeGitHub _argv config@Config {..} gitconfig prj jobs@JobVersions {..} = do
             sh "rm -f cabal.project.local"
 
         for_ cfgConstraintSets $ \cs -> githubRun ("constraint set " ++ csName cs) $ do
-            let sh_cs           = sh_if (Range (csGhcVersions cs))
-            let sh_cs' r        = sh_if (Range (csGhcVersions cs) /\ r)
+            let range
+                  | csGhcjs cs  = Range (csGhcVersions cs)
+                  | otherwise   = RangeGHC /\ Range (csGhcVersions cs)
+
+            let sh_cs           = sh_if range
+            let sh_cs' r        = sh_if (range /\ r)
             let testFlag        = if csTests cs then "--enable-tests" else "--disable-tests"
             let benchFlag       = if csBenchmarks cs then "--enable-benchmarks" else "--disable-benchmarks"
             let constraintFlags = map (\x ->  "--constraint='" ++ x ++ "'") (csConstraints cs)
@@ -601,6 +620,7 @@ makeGitHub _argv config@Config {..} gitconfig prj jobs@JobVersions {..} = do
     cabalVer     = dispCabalVersion cfgCabalInstallVersion
     cabalFullVer = dispCabalVersion $ cfgCabalInstallVersion <&> \ver ->
         case C.versionNumbers ver of
+            [3,6] -> C.mkVersion [3,6,2,0]
             [x,y] -> C.mkVersion [x,y,0,0]
             _     -> ver
 

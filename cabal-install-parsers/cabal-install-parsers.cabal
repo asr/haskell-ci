@@ -21,7 +21,7 @@ maintainer:         hvr@gnu.org, oleg.grenrus@iki.fi
 category:           Development
 build-type:         Simple
 tested-with:
-  GHC ==8.2.2 || ==8.4.4 || ==8.6.5 || ==8.8.4 || ==8.10.4 || ==9.0.1
+  GHC ==8.2.2 || ==8.4.4 || ==8.6.5 || ==8.8.4 || ==8.10.4 || ==8.10.7 || ==9.0.1
 
 extra-source-files:
   Changelog.md
@@ -70,7 +70,7 @@ library
 
   -- extra dependencies
   build-depends:
-    , aeson              ^>=1.4.6.0 || ^>=1.5.0.0
+    , aeson              ^>=1.4.6.0 || ^>=1.5.0.0 || ^>=2.0.0.0
     , base16-bytestring  ^>=1.0.0.0
     , binary-instances   ^>=1
     , cryptohash-sha256  ^>=0.11.101.0

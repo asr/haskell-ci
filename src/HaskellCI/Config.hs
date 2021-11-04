@@ -22,6 +22,7 @@ import qualified Distribution.Parsec             as C
 import qualified Distribution.Pretty             as C
 import qualified Distribution.Types.PackageName  as C
 import qualified Distribution.Types.Version      as C
+import qualified Distribution.Types.VersionRange as C
 import qualified Text.PrettyPrint                as PP
 
 import HaskellCI.Config.ConstraintSet
@@ -85,6 +86,7 @@ data Config = Config
     , cfgLastInSeries        :: !Bool
     , cfgLinuxJobs           :: !VersionRange
     , cfgMacosJobs           :: !VersionRange
+    , cfgGhcupCabal          :: !Bool
     , cfgGhcupJobs           :: !VersionRange
     , cfgGhcupVersion        :: !Version
     , cfgApt                 :: S.Set String
@@ -103,10 +105,10 @@ data Config = Config
   deriving (Generic)
 
 defaultCabalInstallVersion :: Maybe Version
-defaultCabalInstallVersion = Just (C.mkVersion [3,4])
+defaultCabalInstallVersion = Just (C.mkVersion [3,6])
 
 defaultGhcupVersion :: Version
-defaultGhcupVersion = C.mkVersion [0,1,16,2]
+defaultGhcupVersion = C.mkVersion [0,1,17,3]
 
 emptyConfig :: Config
 emptyConfig = case runEG configGrammar of
@@ -209,7 +211,9 @@ configGrammar = Config
         ^^^ metahelp "RANGE" "Jobs to build on Linux"
     <*> rangeField            "macos-jobs"                                                    (field @"cfgMacosJobs") noVersion
         ^^^ metahelp "RANGE" "Jobs to additionally build with OSX"
-    <*> rangeField            "ghcup-jobs"                                                    (field @"cfgGhcupJobs") noVersion
+    <*> C.booleanFieldDef     "ghcup-cabal"                                                   (field @"cfgGhcupCabal") True
+        ^^^ help "Use (or don't) ghcup to install cabal"
+    <*> rangeField            "ghcup-jobs"                                                    (field @"cfgGhcupJobs") (C.unionVersionRanges (C.intersectVersionRanges (C.laterVersion (mkVersion [8,10,4])) (C.earlierVersion (mkVersion [9]))) (C.laterVersion (mkVersion [9,0,1])))
         ^^^ metahelp "RANGE" "(Linux) jobs to use ghcup to install tools"
     <*> C.optionalFieldDef    "ghcup-version"                                                 (field @"cfgGhcupVersion") defaultGhcupVersion
         ^^^ metahelp "VERSION" "ghcup version"
